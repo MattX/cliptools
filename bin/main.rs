@@ -1,11 +1,12 @@
-mod error;
 mod fmt;
 
-use crate::fmt::is_a_tty;
+use crate::fmt::{is_a_tty, Colorizer, print_error};
+use anyhow::{Result, Context};
 use clap::{App, Arg, ArgGroup, ArgMatches, SubCommand};
 use copypasta::{get_clipboard_context, ClipboardContext, ClipboardProvider, ContentType};
 use std::fmt::Formatter;
 use std::io::Write;
+use thiserror::Error;
 
 const VERSION: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
 
@@ -45,56 +46,53 @@ pub fn main() {
     let ok = match sc {
         "paste" => paste(&clipboard, sc_matches.unwrap()),
         "list-types" => list(&clipboard),
-        "" => {
-            eprintln!("error: you must specify a subcommand");
-            std::process::exit(1);
-        }
-        _ => {
-            eprintln!("error: unknown subcommand {}", sc);
-            std::process::exit(1);
-        }
+        "" => Err(CliptoolsError::ArgumentError("you must specify a subcommand".into()).into()),
+        _ => Err(CliptoolsError::ArgumentError(format!("error: unknown subcommand {}", sc)).into())
     };
 
     if let Err(s) = ok {
-        eprintln!("{}", s);
-        std::process::exit(1);
+        let cliptools_error = s.downcast_ref::<CliptoolsError>().expect("unexpected error type");
+        let colorizer = Colorizer::default();
+        print_error(&s, &colorizer);
+        std::process::exit(cliptools_error.exit_code())
     }
 }
 
-fn paste(board: &ClipboardContext, matches: &ArgMatches) -> Result<(), String> {
+fn paste(board: &ClipboardContext, matches: &ArgMatches) -> Result<()> {
     let binary_allowed = {
         match matches.value_of("binary") {
-            None | Some("auto") => is_a_tty(false),
-            Some("always") => true,
+            Some("auto") => !is_a_tty(false),
+            None | Some("always") => true,
             Some("never") => false,
             other => panic!("unexpected value for binary flag: {:?}", other),
         }
     };
 
     let ct = if let Some(t) = matches.value_of("type") {
-        let converted = string_to_ct(t).ok_or(format!(
+        let converted = string_to_ct(t).ok_or(CliptoolsError::ArgumentError(format!(
             "unknown type: {}; try using --custom-type to specify a custom type",
             t
-        ))?;
+        )))?;
         Some(converted)
     } else {
         matches
-            .value_of("custom_type")
+            .value_of("custom-type")
             .map(|t| ContentType::Custom(t.into()))
     };
 
     if let Some(ct) = ct {
-        let val = board.get_content_for_type(&ct).map_err(|e| e.to_string())?;
+        let val = board.get_content_for_type(&ct).expect("unable to read from clipboard");
         show_binary_content(&val, binary_allowed)?;
     } else {
-        let val = board.get_contents().map_err(|e| e.to_string())?;
+        // TODO change the get_contents() return type to distinguish internal and external errors
+        let val = board.get_contents().expect("unable to read from clipboard");
         show_string(&val);
     }
-    std::io::stdout().flush().map_err(|e| e.to_string())
+    std::io::stdout().flush().map_err(|e| anyhow::Error::from(e))
 }
 
-fn list(board: &ClipboardContext) -> Result<(), String> {
-    let types = board.get_content_types().map_err(|e| e.to_string())?;
+fn list(board: &ClipboardContext) -> Result<()> {
+    let types = board.get_content_types().expect("unable to read content types");
     for typ in types {
         println!("{}", DisplayCt(typ));
     }
@@ -113,12 +111,14 @@ fn string_to_ct(s: &str) -> Option<ContentType> {
     })
 }
 
-fn show_binary_content(val: &Option<Vec<u8>>, binary_allowed: bool) -> Result<(), String> {
+fn show_binary_content(val: &Option<Vec<u8>>, binary_allowed: bool) -> Result<()> {
     if let Some(v) = val {
-        let s = std::str::from_utf8(v).map_err(|e| e.to_string())?;
-        print!("{}", s);
+        if !binary_allowed {
+            std::str::from_utf8(v).context(CliptoolsError::Utf8Error)?;
+        }
+        std::io::stdout().write_all(v).expect("unable to flush stdout");
     } else {
-        eprintln!("no data found for this type");
+        return Err(CliptoolsError::DataNotFound.into());
     }
     Ok(())
 }
@@ -139,6 +139,29 @@ impl std::fmt::Display for DisplayCt {
             ContentType::Rtf => write!(f, "rtf"),
             ContentType::Url => write!(f, "url"),
             ContentType::Custom(s) => write!(f, "{}", s),
+        }
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum CliptoolsError {
+    #[error("data not found")]
+    DataNotFound,
+    #[error("argument error: {0}")]
+    ArgumentError(String),
+    #[error("data in clipboard is binary; try using `--binary always`")]
+    Utf8Error,
+}
+
+impl CliptoolsError {
+    /// Converts an error into the exit code.
+    ///  - 1 for missing data
+    ///  - 2 for user errors
+    pub fn exit_code(&self) -> i32 {
+        match self {
+            CliptoolsError::DataNotFound => 1,
+            CliptoolsError::ArgumentError(_) => 2,
+            CliptoolsError::Utf8Error => 2,
         }
     }
 }
