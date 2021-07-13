@@ -177,7 +177,9 @@ impl<T: fmt::Display> fmt::Display for Format<T> {
 
 pub fn print_error(err: &anyhow::Error, c: &Colorizer) {
     eprintln!("{} {}", c.error("error:"), err);
-    err.chain().skip(1).for_each(|cause| eprintln!("       cause: {}", cause));
+    err.chain()
+        .skip(1)
+        .for_each(|cause| eprintln!("       cause: {}", cause));
 }
 
 pub fn print_warning(msg: &str, c: &Colorizer) {
