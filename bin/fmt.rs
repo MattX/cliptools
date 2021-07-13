@@ -22,14 +22,13 @@
 
 // This code is taken from https://github.com/clap-rs/clap/blob/0c7da9f5b32bcd6968a70258a4868d439fbc1fc3/src/fmt.rs
 
-#[cfg(not(target_os = "windows"))]
-use ansi_term::ANSIString;
-
-#[cfg(not(target_os = "windows"))]
-use ansi_term::Colour::{Green, Red, Yellow};
-
 use std::env;
 use std::fmt;
+
+#[cfg(not(target_os = "windows"))]
+use ansi_term::ANSIString;
+#[cfg(not(target_os = "windows"))]
+use ansi_term::Colour::{Green, Red, Yellow};
 
 #[doc(hidden)]
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -40,11 +39,7 @@ pub enum ColorWhen {
 }
 
 pub fn is_a_tty(stderr: bool) -> bool {
-    let stream = if stderr {
-        atty::Stream::Stderr
-    } else {
-        atty::Stream::Stdout
-    };
+    let stream = if stderr { atty::Stream::Stderr } else { atty::Stream::Stdout };
     atty::is(stream)
 }
 
@@ -115,10 +110,7 @@ impl Colorizer {
 
 impl Default for Colorizer {
     fn default() -> Self {
-        Colorizer::new(ColorizerOption {
-            use_stderr: true,
-            when: ColorWhen::Auto,
-        })
+        Colorizer::new(ColorizerOption { use_stderr: true, when: ColorWhen::Auto })
     }
 }
 
@@ -177,9 +169,7 @@ impl<T: fmt::Display> fmt::Display for Format<T> {
 
 pub fn print_error(err: &anyhow::Error, c: &Colorizer) {
     eprintln!("{} {}", c.error("error:"), err);
-    err.chain()
-        .skip(1)
-        .for_each(|cause| eprintln!("       cause: {}", cause));
+    err.chain().skip(1).for_each(|cause| eprintln!("       cause: {}", cause));
 }
 
 pub fn print_warning(msg: &str, c: &Colorizer) {
@@ -188,25 +178,20 @@ pub fn print_warning(msg: &str, c: &Colorizer) {
 
 #[cfg(all(test, not(target_os = "windows")))]
 mod test {
-    use super::Format;
     use ansi_term::ANSIString;
     use ansi_term::Colour::{Green, Red, Yellow};
+
+    use super::Format;
 
     #[test]
     fn colored_output() {
         let err = Format::Error("error");
-        assert_eq!(
-            &*format!("{}", err),
-            &*format!("{}", Red.bold().paint("error"))
-        );
+        assert_eq!(&*format!("{}", err), &*format!("{}", Red.bold().paint("error")));
         let good = Format::Good("good");
         assert_eq!(&*format!("{}", good), &*format!("{}", Green.paint("good")));
         let warn = Format::Warning("warn");
         assert_eq!(&*format!("{}", warn), &*format!("{}", Yellow.paint("warn")));
         let none = Format::None("none");
-        assert_eq!(
-            &*format!("{}", none),
-            &*format!("{}", ANSIString::from("none"))
-        );
+        assert_eq!(&*format!("{}", none), &*format!("{}", ANSIString::from("none")));
     }
 }

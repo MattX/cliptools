@@ -1,21 +1,24 @@
 mod fmt;
 
-use crate::fmt::{is_a_tty, print_error, Colorizer};
+use std::array::IntoIter;
+use std::collections::HashMap;
+use std::fmt::Formatter;
+use std::io::{Read, Write};
+use std::iter::FromIterator;
+
 use anyhow::{Context, Result};
 use clap::{App, Arg, ArgGroup, ArgMatches, SubCommand};
 use copypasta::{get_clipboard_context, ClipboardContext, ClipboardProvider, ContentType};
-use std::fmt::Formatter;
-use std::io::{Write, Read};
 use thiserror::Error;
-use std::collections::HashMap;
-use std::iter::FromIterator;
-use std::array::IntoIter;
+
+use crate::fmt::{is_a_tty, print_error, Colorizer};
 
 const VERSION: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
 
 pub fn main() {
     human_panic::setup_panic!();
 
+    #[rustfmt_skip]
     let matches = App::new("cliptools")
         .version(VERSION.unwrap_or("unknown"))
         .subcommand(SubCommand::with_name("paste").about("Prints data from clipboard")
@@ -76,9 +79,7 @@ pub fn main() {
     };
 
     if let Err(s) = ok {
-        let cliptools_error = s
-            .downcast_ref::<CliptoolsError>()
-            .expect("unexpected error type");
+        let cliptools_error = s.downcast_ref::<CliptoolsError>().expect("unexpected error type");
         let colorizer = Colorizer::default();
         print_error(&s, &colorizer);
         std::process::exit(cliptools_error.exit_code())
@@ -96,15 +97,15 @@ fn paste(board: &ClipboardContext, matches: &ArgMatches) -> Result<()> {
     };
 
     let ct = if let Some(t) = matches.value_of("type") {
-        let converted = string_to_ct(t).ok_or(CliptoolsError::ArgumentError(format!(
-            "unknown type: {}; try using --custom-type to specify a custom type",
-            t
-        )))?;
+        let converted = string_to_ct(t).ok_or_else(|| {
+            CliptoolsError::ArgumentError(format!(
+                "unknown type: {}; try using --custom-type to specify a custom type",
+                t
+            ))
+        })?;
         Some(converted)
     } else {
-        matches
-            .value_of("custom-type")
-            .map(|t| ContentType::Custom(t.into()))
+        matches.value_of("custom-type").map(|t| ContentType::Custom(t.into()))
     };
 
     if let Some(ct) = ct {
@@ -118,16 +119,12 @@ fn paste(board: &ClipboardContext, matches: &ArgMatches) -> Result<()> {
             .map_err(|e| anyhow::Error::msg(e.to_string()).context(CliptoolsError::DataNotFound))?;
         print!("{}", &val);
     }
-    std::io::stdout()
-        .flush()
-        .map_err(|e| anyhow::Error::from(e))
+    std::io::stdout().flush().map_err(anyhow::Error::from)
 }
 
 fn list(board: &ClipboardContext) -> Result<()> {
     // TODO add an option to disable conversion of common data types
-    let types = board
-        .get_content_types()
-        .expect("unable to read content types");
+    let types = board.get_content_types().expect("unable to read content types");
     for typ in types {
         println!("{}", DisplayCt(typ));
     }
@@ -136,20 +133,30 @@ fn list(board: &ClipboardContext) -> Result<()> {
 
 fn copy(board: &ClipboardContext, matches: &ArgMatches) -> Result<()> {
     let map: HashMap<ContentType, Vec<u8>> = if matches.is_present("json") {
-        let json: serde_json::Value = serde_json::from_reader(std::io::stdin()).context(CliptoolsError::JsonError("cannot read JSON input".into()))?;
-        let map = json.as_object().ok_or(CliptoolsError::JsonError("expected a JSON object at top level".into()))?;
-        map.iter().map(|(typ, content)| -> Result<(ContentType, Vec<u8>)> {
-            let ct = string_to_ct(typ).ok_or(CliptoolsError::ArgumentError(format!(
-                "unknown type: {}", typ)))?;
-            let val = content.as_str().ok_or(CliptoolsError::JsonError(format!("expected a string under key {}", typ)))?;
-            Ok((ct, val.bytes().collect()))
-        }).collect::<Result<HashMap<_, _>>>()?
+        let json: serde_json::Value = serde_json::from_reader(std::io::stdin())
+            .context(CliptoolsError::JsonError("cannot read JSON input".into()))?;
+        let map = json.as_object().ok_or_else(|| {
+            CliptoolsError::JsonError("expected a JSON object at top level".into())
+        })?;
+        map.iter()
+            .map(|(typ, content)| -> Result<(ContentType, Vec<u8>)> {
+                let ct = string_to_ct(typ).ok_or_else(|| {
+                    CliptoolsError::ArgumentError(format!("unknown type: {}", typ))
+                })?;
+                let val = content.as_str().ok_or_else(|| {
+                    CliptoolsError::JsonError(format!("expected a string under key {}", typ))
+                })?;
+                Ok((ct, val.bytes().collect()))
+            })
+            .collect::<Result<HashMap<_, _>>>()?
     } else {
         let ct = if let Some(t) = matches.value_of("type") {
-            string_to_ct(t).ok_or(CliptoolsError::ArgumentError(format!(
-                "unknown type: {}; try using --custom-type to specify a custom type",
-                t
-            )))?
+            string_to_ct(t).ok_or_else(|| {
+                CliptoolsError::ArgumentError(format!(
+                    "unknown type: {}; try using --custom-type to specify a custom type",
+                    t
+                ))
+            })?
         } else if let Some(t) = matches.value_of("custom-type") {
             ContentType::Custom(t.into())
         } else {
@@ -157,10 +164,12 @@ fn copy(board: &ClipboardContext, matches: &ArgMatches) -> Result<()> {
         };
         let mut data = Vec::new();
         std::io::stdin().read_to_end(&mut data).context(CliptoolsError::InternalError)?;
-        HashMap::<_, _>::from_iter(IntoIter::new([(ct, data)]))
+        IntoIter::new([(ct, data)]).collect()
     };
 
-    board.set_content_types(map).map_err(|e| anyhow::Error::msg(e.to_string()).context(CliptoolsError::InternalError))
+    board
+        .set_content_types(map)
+        .map_err(|e| anyhow::Error::msg(e.to_string()).context(CliptoolsError::InternalError))
 }
 
 fn string_to_ct(s: &str) -> Option<ContentType> {
@@ -171,11 +180,13 @@ fn string_to_ct(s: &str) -> Option<ContentType> {
         "png" => ContentType::Png,
         "rtf" => ContentType::Rtf,
         "text" => ContentType::Text,
-        _ => if s.chars().next() == Some('@') {
-            ContentType::Custom(s.chars().skip(1).collect())
-        } else {
-            return None;
-        }
+        _ => {
+            if s.starts_with('@') {
+                ContentType::Custom(s.chars().skip(1).collect())
+            } else {
+                return None;
+            }
+        },
     })
 }
 
@@ -183,9 +194,7 @@ fn show_binary_content(val: &[u8], binary_allowed: bool) -> Result<()> {
     if !binary_allowed {
         std::str::from_utf8(val).context(CliptoolsError::Utf8Error)?;
     }
-    std::io::stdout()
-        .write_all(val)
-        .expect("unable to flush stdout");
+    std::io::stdout().write_all(val).expect("unable to flush stdout");
     Ok(())
 }
 
