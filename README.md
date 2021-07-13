@@ -29,7 +29,7 @@ Each application can request the content type it prefers from the clipboard.
 
 The specific way content-types are encoded depends on the platform, so cliptools provides standard
 aliases that work cross-platform: `url`, `html`, `pdf`, `png`, `rtf`, and `text`. These are accepted
-by the `-t` / `--type` argument. If you need to use another content type, you can use `--custom-type`.
+by the `-t` / `--type` argument. If you need to use another content type, you can use `--system-type`.
 In this case, you need to know how your platform encodes content types for the clipboard.
 
 In some cases, such as if you use JSON input, cliptools will assume you are using standard aliases,
@@ -39,9 +39,13 @@ give you [TIFF](https://en.wikipedia.org/wiki/TIFF) contents on MacOS.
 ### Return codes
 
  - 0 if everything went well
- - 1 if data was not found (e.g. no data for the requested format)
+ - 1 if data was not found (e.g. no data for the requested format), or there was an error setting
+   clipboard contents.
  - \>1 for other errors
 
 ### TODO
 
- - Support clipboard history. This is not available on all platforms, but is useful on those for which it is.
+ - Support clipboard history. This is not available on all platforms, but is useful on those for
+   which it is.
+ - If using JSON input to fill in several content-types, there is no way to send in binary data (that's a
+   JSON format limitation). There should be another input method for this use case.

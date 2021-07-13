@@ -4,7 +4,6 @@ use std::array::IntoIter;
 use std::collections::HashMap;
 use std::fmt::Formatter;
 use std::io::{Read, Write};
-use std::iter::FromIterator;
 
 use anyhow::{Context, Result};
 use clap::{App, Arg, ArgGroup, ArgMatches, SubCommand};
@@ -18,26 +17,26 @@ const VERSION: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
 pub fn main() {
     human_panic::setup_panic!();
 
-    #[rustfmt_skip]
+    #[rustfmt::skip]
     let matches = App::new("cliptools")
         .version(VERSION.unwrap_or("unknown"))
         .subcommand(SubCommand::with_name("paste").about("Prints data from clipboard")
             // TODO add control over final newline
             .arg(Arg::with_name("type")
                 .help("Format to fetch the data in, if available. Must be one of `url`, `html`, \
-                       `pdf`, `png`, `rtf`, or `text`. For other formats, use --custom-type, \
+                       `pdf`, `png`, `rtf`, or `text`. For other formats, use --system-type, \
                        or prefix your type with an at sign (@).")
                 .long("type")
                 .short("t")
                 .takes_value(true))
-            .arg(Arg::with_name("custom-type")
+            .arg(Arg::with_name("system-type")
                 // TODO add a platform-dependent explanation of the data format
                 .help("Format to fetch the data in, if available. The expected format is platform \
                        dependent; for a portable alternative, use --type.")
-                .long("custom-type")
+                .long("system-type")
                 .takes_value(true))
             .group(ArgGroup::with_name("format")
-                .args(&["type", "custom-type"]))
+                .args(&["type", "system-type"]))
             .arg(Arg::with_name("binary")
                 .help("Allow binary output. By default, this is disallowed if the output is a \
                        terminal, and disallowed otherwise.")
@@ -45,26 +44,30 @@ pub fn main() {
                 .min_values(0)
                 .max_values(1)
                 .possible_values(&["auto", "always", "never"])))
-        .subcommand(SubCommand::with_name("list-types").about("Prints types currently in clipboard"))
+        .subcommand(SubCommand::with_name("list-types").about("Prints types currently in clipboard")
+            .arg(Arg::with_name("system")
+                .help("Display native content types, instead of using cliptool aliases")
+                .long("system")
+                .short("s")))
         .subcommand(SubCommand::with_name("copy").about("Set data in clipboard")
             .arg(Arg::with_name("type")
                 .help("Format of the data. Must be one of `url`, `html`, \
-                       `pdf`, `png`, `rtf`, or `text`. For other formats, use --custom-type, \
+                       `pdf`, `png`, `rtf`, or `text`. For other formats, use --system-type, \
                        or prefix your type with an at sign (@).")
                 .long("type")
                 .short("t")
                 .takes_value(true))
-            .arg(Arg::with_name("custom-type")
+            .arg(Arg::with_name("system-type")
                 .help("Format of the data. The expected format is platform \
                        dependent; for a portable alternative, use --type.")
-                .long("custom-type")
+                .long("system-type")
                 .takes_value(true))
             .arg(Arg::with_name("json")
                 .help("Expect a JSON map of data formats to content for each format")
                 .long("json")
                 .short("j"))
             .group(ArgGroup::with_name("format")
-                .args(&["type", "custom-type", "json"])))
+                .args(&["type", "system-type", "json"])))
         .get_matches();
 
     let clipboard = get_clipboard_context().expect("unable to open clipboard");
@@ -72,7 +75,7 @@ pub fn main() {
     let (sc, sc_matches) = matches.subcommand();
     let ok = match sc {
         "paste" => paste(&clipboard, sc_matches.unwrap()),
-        "list-types" => list(&clipboard),
+        "list-types" => list(&clipboard, sc_matches.unwrap().is_present("system")),
         "copy" => copy(&clipboard, sc_matches.unwrap()),
         "" => Err(CliptoolsError::ArgumentError("you must specify a subcommand".into()).into()),
         _ => Err(CliptoolsError::ArgumentError(format!("unknown subcommand {}", sc)).into()),
@@ -99,13 +102,13 @@ fn paste(board: &ClipboardContext, matches: &ArgMatches) -> Result<()> {
     let ct = if let Some(t) = matches.value_of("type") {
         let converted = string_to_ct(t).ok_or_else(|| {
             CliptoolsError::ArgumentError(format!(
-                "unknown type: {}; try using --custom-type to specify a custom type",
+                "unknown type: {}; try using --system-type to specify a system native type",
                 t
             ))
         })?;
         Some(converted)
     } else {
-        matches.value_of("custom-type").map(|t| ContentType::Custom(t.into()))
+        matches.value_of("system-type").map(|t| ContentType::Custom(t.into()))
     };
 
     if let Some(ct) = ct {
@@ -122,11 +125,16 @@ fn paste(board: &ClipboardContext, matches: &ArgMatches) -> Result<()> {
     std::io::stdout().flush().map_err(anyhow::Error::from)
 }
 
-fn list(board: &ClipboardContext) -> Result<()> {
-    // TODO add an option to disable conversion of common data types
-    let types = board.get_content_types().expect("unable to read content types");
+fn list(board: &ClipboardContext, system: bool) -> Result<()> {
+    let types = board
+        .get_content_types()
+        .map_err(|e| anyhow::Error::msg(e.to_string()).context(CliptoolsError::DataNotFound))?;
     for typ in types {
-        println!("{}", DisplayCt(typ));
+        if system {
+            println!("{}", ClipboardContext::denormalize_content_type(typ));
+        } else {
+            println!("{}", DisplayCt(typ));
+        }
     }
     Ok(())
 }
@@ -153,11 +161,11 @@ fn copy(board: &ClipboardContext, matches: &ArgMatches) -> Result<()> {
         let ct = if let Some(t) = matches.value_of("type") {
             string_to_ct(t).ok_or_else(|| {
                 CliptoolsError::ArgumentError(format!(
-                    "unknown type: {}; try using --custom-type to specify a custom type",
+                    "unknown type: {}; try using --system-type to specify a system native type",
                     t
                 ))
             })?
-        } else if let Some(t) = matches.value_of("custom-type") {
+        } else if let Some(t) = matches.value_of("system-type") {
             ContentType::Custom(t.into())
         } else {
             ContentType::Text

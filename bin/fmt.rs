@@ -30,7 +30,6 @@ use ansi_term::ANSIString;
 #[cfg(not(target_os = "windows"))]
 use ansi_term::Colour::{Green, Red, Yellow};
 
-#[doc(hidden)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ColorWhen {
     Auto,
@@ -170,10 +169,6 @@ impl<T: fmt::Display> fmt::Display for Format<T> {
 pub fn print_error(err: &anyhow::Error, c: &Colorizer) {
     eprintln!("{} {}", c.error("error:"), err);
     err.chain().skip(1).for_each(|cause| eprintln!("       cause: {}", cause));
-}
-
-pub fn print_warning(msg: &str, c: &Colorizer) {
-    eprintln!("{} {}", c.warning("warning:"), msg);
 }
 
 #[cfg(all(test, not(target_os = "windows")))]
