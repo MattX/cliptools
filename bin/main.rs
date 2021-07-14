@@ -7,15 +7,16 @@ use std::io::{Read, Write};
 
 use anyhow::{Context, Result};
 use clap::{App, Arg, ArgGroup, ArgMatches, SubCommand};
-use copypasta::{get_clipboard_context, ClipboardContext, ClipboardProvider, ContentType};
 use thiserror::Error;
 
 use crate::fmt::{is_a_tty, print_error, Colorizer};
+use arboard::{Clipboard, ContentType};
 
 const VERSION: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
 
 pub fn main() {
     human_panic::setup_panic!();
+    // env_logger::builder().filter_level(log::LevelFilter::Trace).init();
 
     #[rustfmt::skip]
     let matches = App::new("cliptools")
@@ -70,13 +71,13 @@ pub fn main() {
                 .args(&["type", "system-type", "json"])))
         .get_matches();
 
-    let clipboard = get_clipboard_context().expect("unable to open clipboard");
+    let mut clipboard = Clipboard::new().expect("unable to open clipboard");
 
     let (sc, sc_matches) = matches.subcommand();
     let ok = match sc {
-        "paste" => paste(&clipboard, sc_matches.unwrap()),
-        "list-types" => list(&clipboard, sc_matches.unwrap().is_present("system")),
-        "copy" => copy(&clipboard, sc_matches.unwrap()),
+        "paste" => paste(&mut clipboard, sc_matches.unwrap()),
+        "list-types" => list(&mut clipboard, sc_matches.unwrap().is_present("system")),
+        "copy" => copy(&mut clipboard, sc_matches.unwrap()),
         "" => Err(CliptoolsError::ArgumentError("you must specify a subcommand".into()).into()),
         _ => Err(CliptoolsError::ArgumentError(format!("unknown subcommand {}", sc)).into()),
     };
@@ -89,7 +90,7 @@ pub fn main() {
     }
 }
 
-fn paste(board: &ClipboardContext, matches: &ArgMatches) -> Result<()> {
+fn paste(board: &mut Clipboard, matches: &ArgMatches) -> Result<()> {
     let binary_allowed = {
         match matches.value_of("binary") {
             Some("auto") => !is_a_tty(false),
@@ -118,28 +119,36 @@ fn paste(board: &ClipboardContext, matches: &ArgMatches) -> Result<()> {
         show_binary_content(&val, binary_allowed)?;
     } else {
         let val = board
-            .get_contents()
+            .get_text()
             .map_err(|e| anyhow::Error::msg(e.to_string()).context(CliptoolsError::DataNotFound))?;
         print!("{}", &val);
     }
     std::io::stdout().flush().map_err(anyhow::Error::from)
 }
 
-fn list(board: &ClipboardContext, system: bool) -> Result<()> {
+fn list(board: &mut Clipboard, system: bool) -> Result<()> {
     let types = board
         .get_content_types()
         .map_err(|e| anyhow::Error::msg(e.to_string()).context(CliptoolsError::DataNotFound))?;
-    for typ in types {
-        if system {
-            println!("{}", ClipboardContext::denormalize_content_type(typ));
-        } else {
-            println!("{}", DisplayCt(typ));
+    if system {
+        for typ in types {
+            println!("{}", typ);
+        }
+    } else {
+        let mut converted = types.into_iter()
+            .map(|s| board.normalize_content_type(s))
+            .map(|ct| show_ct(&ct))
+            .collect::<Vec<_>>();
+        converted.sort();
+        converted.dedup();
+        for typ in converted {
+            println!("{}", typ);
         }
     }
     Ok(())
 }
 
-fn copy(board: &ClipboardContext, matches: &ArgMatches) -> Result<()> {
+fn copy(board: &mut Clipboard, matches: &ArgMatches) -> Result<()> {
     let map: HashMap<ContentType, Vec<u8>> = if matches.is_present("json") {
         let json: serde_json::Value = serde_json::from_reader(std::io::stdin())
             .context(CliptoolsError::JsonError("cannot read JSON input".into()))?;
@@ -206,19 +215,15 @@ fn show_binary_content(val: &[u8], binary_allowed: bool) -> Result<()> {
     Ok(())
 }
 
-struct DisplayCt(pub ContentType);
-
-impl std::fmt::Display for DisplayCt {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match &self.0 {
-            ContentType::Text => write!(f, "text"),
-            ContentType::Html => write!(f, "html"),
-            ContentType::Pdf => write!(f, "pdf"),
-            ContentType::Png => write!(f, "png"),
-            ContentType::Rtf => write!(f, "rtf"),
-            ContentType::Url => write!(f, "url"),
-            ContentType::Custom(s) => write!(f, "@{}", s),
-        }
+fn show_ct(ct: &ContentType) -> String {
+    match ct {
+        ContentType::Text => "text".into(),
+        ContentType::Html => "html".into(),
+        ContentType::Pdf => "pdf".into(),
+        ContentType::Png => "png".into(),
+        ContentType::Rtf => "rtf".into(),
+        ContentType::Url => "url".into(),
+        ContentType::Custom(s) => format!("@{}", s),
     }
 }
 

@@ -2,11 +2,11 @@
 
 A cross-platform CLI utility to manipulate the clipboard (aka pasteboard).
 
-Supports Windows, MacOS, X11, and Wayland; powered by [copypasta](https://github.com/alacritty/copypasta).
+Supports Windows, MacOS, X11, and Wayland; powered by [arboard](https://github.com/ArturKovacs/arboard).
 
 ## Status
 
-In development. Tested on MacOS, and I'm working on X11.
+In development. ~~Tested on MacOS~~, and I'm working on X11.
 
 ## Features
 
