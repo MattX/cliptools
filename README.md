@@ -2,19 +2,44 @@
 
 A cross-platform CLI utility to manipulate the clipboard (aka pasteboard).
 
-Supports Windows, MacOS, X11, and Wayland; powered by [arboard](https://github.com/ArturKovacs/arboard).
+Supports Windows, MacOS, X11, and Wayland; powered by [arboard](https://github.com/ArturKovacs/arboard)
+(or rather a fork; bugs are my fault!)
+
+## Usage
+
+To copy data from the terminal:
+
+```
+$ echo abc | cliptools copy
+```
+
+To paste the contents of the clipboard as HTML:
+
+```
+$ cliptools paste -t html
+<p>Assertions are always checked in both debug and release builds, and cannot
+be disabled. See <a href="https://doc.rust-lang.org/std/macro.debug_assert.html" title="debug_assert!">
+<code>debug_assert!</code></a> for assertions that are not enabled in release builds by default.</p>
+```
+
+To view types supported by the current clipboard selection:
+
+```
+$ cliptools list-types
+@public.tiff
+html
+```
 
 ## Status
 
-In development. ~~Tested on MacOS~~, and I'm working on X11.
+In development. Tested on MacOS, and I'm working on X11. There should be basic support for copy
+and paste (but no requesting specific types, etc) on Wayland and Windows.
 
 ## Features
 
  - Print data from clipboard, optionally for a specific type (`cliptools paste [-t format]`)
  - List types available for current contents of clipboard (`clipboards list-types`)
  - Change contents of clipboard (`clipboard copy [-t format]`)
-
-## Usage
 
 ### Content types
 

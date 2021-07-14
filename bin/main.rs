@@ -6,11 +6,11 @@ use std::fmt::Formatter;
 use std::io::{Read, Write};
 
 use anyhow::{Context, Result};
+use arboard::{Clipboard, ContentType};
 use clap::{App, Arg, ArgGroup, ArgMatches, SubCommand};
 use thiserror::Error;
 
 use crate::fmt::{is_a_tty, print_error, Colorizer};
-use arboard::{Clipboard, ContentType};
 
 const VERSION: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
 
@@ -135,7 +135,8 @@ fn list(board: &mut Clipboard, system: bool) -> Result<()> {
             println!("{}", typ);
         }
     } else {
-        let mut converted = types.into_iter()
+        let mut converted = types
+            .into_iter()
             .map(|s| board.normalize_content_type(s))
             .map(|ct| show_ct(&ct))
             .collect::<Vec<_>>();
