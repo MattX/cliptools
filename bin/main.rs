@@ -16,13 +16,16 @@ const VERSION: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
 
 pub fn main() {
     human_panic::setup_panic!();
-    // env_logger::builder().filter_level(log::LevelFilter::Trace).init();
 
     #[rustfmt::skip]
     let matches = App::new("cliptools")
         .version(VERSION.unwrap_or("unknown"))
         .subcommand(SubCommand::with_name("paste").about("Prints data from clipboard")
-            // TODO add control over final newline
+            .arg(Arg::with_name("no-newline")
+                .help("Don't append a trailing newline even if the contents of the clipboard \
+                       don't already end with one. Has no effect if the output is binary.")
+                .long("--no-newline")
+                .short("-n"))
             .arg(Arg::with_name("type")
                 .help("Format to fetch the data in, if available. Must be one of `url`, `html`, \
                        `pdf`, `png`, `rtf`, or `text`. For other formats, use --system-type, \
@@ -112,16 +115,18 @@ fn paste(board: &mut Clipboard, matches: &ArgMatches) -> Result<()> {
         matches.value_of("system-type").map(|t| ContentType::Custom(t.into()))
     };
 
+    let add_newline = !matches.is_present("no-newline");
+
     if let Some(ct) = ct {
         let val = board
             .get_content_for_type(&ct)
             .map_err(|e| anyhow::Error::msg(e.to_string()).context(CliptoolsError::DataNotFound))?;
-        show_binary_content(&val, binary_allowed)?;
+        show_content(&val, binary_allowed, add_newline)?;
     } else {
         let val = board
             .get_text()
             .map_err(|e| anyhow::Error::msg(e.to_string()).context(CliptoolsError::DataNotFound))?;
-        print!("{}", &val);
+        show_string(&val, add_newline);
     }
     std::io::stdout().flush().map_err(anyhow::Error::from)
 }
@@ -208,12 +213,21 @@ fn string_to_ct(s: &str) -> Option<ContentType> {
     })
 }
 
-fn show_binary_content(val: &[u8], binary_allowed: bool) -> Result<()> {
-    if !binary_allowed {
-        std::str::from_utf8(val).context(CliptoolsError::Utf8Error)?;
+fn show_content(val: &[u8], binary_allowed: bool, add_newline: bool) -> Result<()> {
+    let utf8 = std::str::from_utf8(val).context(CliptoolsError::Utf8Error);
+    match (utf8, binary_allowed) {
+        (Ok(s), _) => show_string(s, add_newline),
+        (Err(e), false) => return Err(e),
+        _ => std::io::stdout().write_all(val).expect("unable to flush stdout"),
     }
-    std::io::stdout().write_all(val).expect("unable to flush stdout");
     Ok(())
+}
+
+fn show_string(s: &str, add_newline: bool) {
+    print!("{}", s);
+    if s.as_bytes().last() != Some(&b'\n') && add_newline {
+        println!()
+    }
 }
 
 fn show_ct(ct: &ContentType) -> String {
